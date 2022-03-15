@@ -1,0 +1,169 @@
+---
+title: "Public opinions of COVID-19 on Twitter during the outbreak reflect the initial vaccination rates"
+author: "Meng-Tien Tsai, 918983808, 12"
+date: "2022/3/14"
+output: html_document
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, results=FALSE}
+library(tidyverse)
+library(patchwork)
+library(gplots)
+library(kableExtra)
+library(qwraps2)
+who_data <- read_csv("https://covid19.who.int/WHO-COVID-19-global-data.csv")
+data <- read_csv("dataset/final_topic_vaccine.csv")
+
+```
+
+# Introduction
+Since the end of 2019, the COVID-19 pandemic has caused 5.8 million deaths in the world. To confront such a disease threat, the COVID-19 vaccines were released at the end of 2020. With lots of research about the effectiveness of COVID-19 vaccines[1], vaccines seem to be one of the most important ways of terminating the disease or preventing it from spreading. However, despite all the benefits vaccines provides, there are still differences in initial vaccination rates between states in the United States. Since Vaccines in the United States were sufficient and policy toward vaccines in the first few months since the vaccines were released was mostly similar between states, it implies that residents of different states or counties in the United States might have different attitudes toward vaccines. 
+Social media has been a major way for people to deliver their opinions and share their ideas in recent years, and Twitter is one of the most popular social media in the United States. In 3 months ever since the outbreak, there are already 270 thousand public tweets about  COVID-19. With only the Twitter data during the outbreak and interests of the insights of local level attitude at the time, this report plans to study whether the tweets about COVID-19 during the outbreak could anyhow reflect the vaccination rate of each county.
+
+--------------------------------
+Question of interest:
+
+How do the topics of public opinions of COVID-19 on Twitter during the outbreak reflect the initial vaccination rates?
+
+# Datasets and Descriptive analysis
+### I. WHO data set
+The WHO data set[2] is the latest data on the COVID-19 global outbreak and is maintained by WHO and updated constantly from January 2020 to March 2022 with 8 variables for 236 countries which are separated into 6 regions: Eastern Mediterranean, Europe, Africa, Western Pacific, Americas, and South-East Asia. According to WHO, the Americas and Europe have more new cases than other regions (Figure 1). Especially, the Americas also has more new deaths than all the other regions. However, after February 2021, 2 months after the vaccines were released, the number of new deaths in the Americas seems to decrease.
+```{r, echo=FALSE, warning=FALSE, message=FALSE, results=FALSE}
+who_data <- who_data %>% 
+  filter(WHO_region != "Other") %>% 
+  mutate(WHO_region = fct_recode(WHO_region,"Eastern Mediterranean"="EMRO","Europe" = "EURO","Africa" = "AFRO",
+                                 "Western Pacific" = "WPRO","Americas"="AMRO","South-East Asia" = "SEARO"))
+
+range(who_data$Date_reported)
+length(unique(who_data$Country))
+
+who_data_region <- who_data %>%
+  select(!c(2,3)) %>%
+  group_by(Date_reported, WHO_region) %>%
+  summarise_each(funs(sum))
+
+who_data_region$Case_mortality_rate <- who_data_region$Cumulative_deaths/who_data_region$Cumulative_cases
+who_data_region$Case_mortality_rate[is.nan(who_data_region$Case_mortality_rate)] <- 0
+
+length(unique(who_data$WHO_region))
+```
+
+```{r, echo=FALSE, fig.height=8, fig.width=12}
+
+f1 <- ggplot(who_data_region, aes(x = Date_reported, y = New_cases)) +
+  geom_line(aes(color = WHO_region))+
+  scale_x_continuous(breaks = pretty(who_data_region$Date_reported, n = 12)) +
+  labs(x = "Date reported", y = "New cases",color='WHO region')
+
+f2 <- ggplot(who_data_region, aes(x = Date_reported, y = New_deaths)) +
+  geom_line(aes(color = WHO_region)) +
+  scale_x_continuous(breaks = pretty(who_data_region$Date_reported, n = 12)) +
+  guides(color="none") +
+  labs(x = "Date reported", y = "New deaths",color='WHO region')
+
+
+(f1 / f2) + plot_annotation(
+  title = 'Figure 1. New cases and new deaths overtime.',
+  theme = theme(plot.title = element_text(hjust = 0.5))
+)
+```
+
+### II. Vaccine data set
+
+To look into the initial vaccination situation in America, the second data set [3] was collected from the Centers for Disease Control and Prevention (CDC) via API with filters of date between December 13th, 2020 and April 1st, 2021, which is an initial 4 months after COVID-19 Vaccine was available under EUA. This data set is about vaccination details by county in the United State which contains 34 variables and 357528 observations. From Figure 2, up to March 2021, the highest vaccination rate was around 37% in New Mexico State while there was still 0% vaccination rate in lots of states. 
+<br><br>
+<center>
+Figure 2. Vaccination rates by states in United State
+![Vaccination rates by state in United State](https://imgur.com/HEWB8Nl.png)
+</center>
+
+### III. Twitter data set
+The data set is about tweets in English that were posted from January 23rd to March 25th, 2020, and were mined with keywords ‘coronavirus’, ‘corona virus’, ‘corona’, ‘covid’, ‘covid-19’, ‘covid 19’, and ‘covid19’. The data set was provided by the research, Twitter-based analysis reveals differential COVID-19 concerns across areas with socioeconomic disparities, and contains 7 variables and 270196 observations (tweets). Information about the variables can be found in Table 1.
+<br><br>
+<center>
+Table 1. Description of variables in Twitter data
+![Description of varables in Twitter data](https://imgur.com/gfRZbAk.png)
+</center>
+In this study, topic modeling is conducted with Twitter data to observe the topic among all the Tweets collected during the COVID-19 outbreak. According to Figure 3, the number of tweets has huge difference amount states. We can observe the number of tweets about COVID that are posted from California is the largest during the outbreak. However, with a different population of each state, the percentage of the total population with the numbers of tweets by state shows that the District of Columbia State has the highest percentage of all other states (Figure 4). 
+<br><br>
+<center>
+Figure 3. Numbers of tweet per state
+![Numbers of tweet per state](https://imgur.com/BLdSOwc.png)
+<br><br>
+Figure 4. Percentage of total population with the numbers of tweet by state
+![Percentage of total population with the numbers of tweet by state](https://imgur.com/TaaZAJC.png)
+</center>
+
+# Methods and Results
+### I. Topic modeling: Latent Dirichlet Allocation (LDA) 
+To analyze the tweets, Latent Dirichlet Allocation (LDA) [4] is used to do the topic modeling. LDA is an unsupervised approach to detect topics from all the articles, and each article can then be assigned into different dominant topics by the models. In order to construct a better model, words that are included in more than 50% of the tweets or less than 20 tweets are excluded. I first run 49 models with 2 to 50 topics and determine the numbers of topics that produce the model with best performance by their coherence scores which can evaluate the coherence between topics inferred by a model (Figure 5). 
+<br><br>
+<center>
+Figure 5. Coherence scores of 49 models with 2 to 50 topics
+![Coherence scores of 49 models with 2 to 50 topics](https://imgur.com/NccSgXz.png)
+</center>
+With the highest coherence scores (0.422), I choose the model with 11 topics as the best and final model. For each topic, the terms included are shown in the word cloud and the size of each word in it represents its weights toward the topic (Figure 6).
+<br><br>
+<center>
+Figure 6. Word cloud of each topic
+![Word clouds of each topic](https://imgur.com/wW9RTuS.png)
+</center>
+<br><br>
+For the convenience and interpretation of each topic, with the terms of each topic and its weights, we are able to name each topic. For instance, Topic 7 with the terms such as "school", "cancel", "student", and "online" would be named as "school". The name of each topic can be found in Table 2.
+<br><br>
+<center>
+Table 2. Name of each topic
+<br><br>
+![Name of each topic](https://imgur.com/TsImouH.png)
+</center>
+
+Moreover, we can fit all the documents(tweets) back into the final model and produce the document-topic distribution (Table 3). To be more specific, from the first row in Table 3, we could tell that no.0 tweet has the highest distribution in topic 9 (0.5) out of all 11 topics which mean in this tweet, the topics of it are mostly composed by "Negative emotion"(topic 9). 
+
+<center>
+Table 3. Document-topic distribution
+![Description of varables in Twitter data](https://imgur.com/RUC6iUF.png)
+</center>
+
+### Linear Regression
+
+To answer the question of interest mentioned in the introduction which focuses more on the initial vaccination rate, a linear regression model is built with response variable, percentage of the total population with at least one dose by the state of Residence, from vaccine data. In addition, the document-topic distributions are grouped into counties and multiplied by 100 for scaling and the time indicator(month) attributes in the model. 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, results=TRUE}
+# load data
+data$month <- as.factor(data$month)
+
+for (i in 8:18){
+  data[i] <- data[i]*100
+}
+attach(data)
+fit = lm(administered_dose1_pop_pct_03~`Topic 1`+`Topic 2`+`Topic 3`+`Topic 4`+`Topic 5`+`Topic 6`+`Topic 7`+`Topic 8`+`Topic 9`+`Topic 10`+`Topic 11`+month)
+summary(fit)
+
+```
+
+According to the model result, Mask(Topic 6) and Negative emotion(Topic 9) are significant and have the most negative effect on the vaccination rate. Moreover, tweets that were posted in February 2020 also have the most influence on the vaccination rate out of tweets that were posted on the other 2 months.
+
+
+
+# Discussion
+
+Overall, this study concludes that compare to the negative magnitude of the effect of other topics on vaccination rate, tweets about Mask(Topic 6) and Negative emotion(Topic 9) have the strongest effect. However, the performance of the model still needs adjustment and augment. 
+To improve the model performance, we need to account for 2 problems from the document-topic distribution data in the future study. First, the data seems to be skewed, which needs to be transformed. Second, it contains lots of 0, which represents that the document doesn't include the topic. This lowers the explanatory capacity of the model that would also need further study to resolve. Due to the time-limited, this report only focuses on interpreting the association between topics and vaccination rate using a linear regression model. However, there is a lot more to do with the document-topic distribution, including the trend of the topics during the time, topics differences among counties, and even building models with other possible influenced factors. So far, the report is not able to do causal inference since it is only to study whether the document-topic distribution reflects instead of causes higher or lower vaccination rate. Apart from the problem of time differences of tweets data and vaccine data, it should be conducted with a third factor that is mutual, such as education level. Finally, if the Twitter data set includes tweets posted during the vaccine release, it could have a higher possibility of conducting a more direct and thorough analysis.
+
+
+# Acknowledgement
+
+Instructor: Dr. Shizhe Chen
+
+# Reference {-}
+
+ [1] Lin, D., Gu, Y., Wheeler, B., Young, H., Holloway, S., Sunny, S., Moore, S. & Zeng, D. (2022). Effectiveness of Covid-19 Vaccines over a 9-Month Period in North Carolina. Retrieved from https://www.nejm.org/doi/full/10.1056/NEJMoa2117128#article_citing_articles
+ 
+ [2] WHO COVID-19 Dashboard. Geneva: World Health Organization, 2020. Available online: https://covid19.who.int/ (last cited: 02/17/2022)
+
+ [3] Centers for Disease Control and Prevention. COVID-19 Vaccinations in the United States,County. Available online: https://data.cdc.gov/Vaccinations/COVID-19-Vaccinations-in-the-United-States-County/8xkx-amqh/
+ 
+ [4] Blei, D., Ng, A. & Jordan, M. (2003) Latent dirichlet allocation. pp. 993-1022
+ 
+
+ 
